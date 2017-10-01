@@ -11,6 +11,8 @@ import pymorphy2
 from math import log
 from collections import defaultdict, namedtuple, Counter, OrderedDict
 
+from tabulate import tabulate
+
 
 # from https://stackoverflow.com/a/32782927/4676150
 def namedtuple_asdict(obj):
@@ -32,9 +34,10 @@ class Index:
     Entry = namedtuple('Entry', ['docID', 'cnt'])
 
     def __init__(self):
-        self._inv_idx  = defaultdict(list)
+        self._inv_idx = defaultdict(list)
         self._docs = []
         self._stop_words = set(stop_words.get_stop_words('ru')).union(['.', ',', '!', '?', ':', ';'])
+        self._morph = pymorphy2.MorphAnalyzer()
 
     def dump(self, fn):
         with codecs.open(fn, 'w', 'utf8') as fd:
@@ -52,8 +55,7 @@ class Index:
         counter = Counter()
         docID = len(self._docs)
 
-        for word in self._tokenize(doc):
-            term = word
+        for term in self._tokenize(doc):
             counter[term] += 1
 
         totalCnt = 0
@@ -92,7 +94,13 @@ class Index:
         return idf * Dq
 
     def _tokenize(self, text):
-        return filter(lambda x: x not in self._stop_words, re.findall(r"[\w']+|[.,!?:;]", text))
+        def check(word):
+            return word not in self._stop_words
+
+        def normalize(word):
+            return self._morph.parse(word.lower())[0].normal_form
+
+        return map(normalize, filter(check, re.findall(r"[\w']+|[.,!?:;]", text)))
 
 
 def crawl(start, n, callback):
@@ -125,6 +133,8 @@ def crawl(start, n, callback):
             for title in exc.options:
                 if i >= n:
                     return
+                if title in visited:
+                    continue
                 try:
                     process_page(title)
                 except wikipedia.DisambiguationError:
@@ -140,6 +150,7 @@ def index(args):
 def query_repl(args):
     idx = Index()
     idx.load(args.load + '.json')
+    n = args.n
 
     while True:
         query = input("Enter search query (or q for exit):")
@@ -147,8 +158,8 @@ def query_repl(args):
             print("Exit")
             return
         results = idx.query(query)
-        for res in results[:3]:
-            print(res)
+        results = [(i+1, x['score'], x['title'], x['url']) for i, x in enumerate(results)]
+        print(tabulate(results[:n], headers=['#n', 'score', 'title', 'url']))
 
 
 def main():
@@ -163,6 +174,7 @@ def main():
     index_parser.add_argument('--dump', type=str, default='index', help='dump index to filesystem')
     index_parser.set_defaults(func=index)
 
+    query_parser.add_argument('-n', type=int, default=3, help='number of displayed results')
     query_parser.add_argument('--load', type=str, default='index', help='file containing index')
     query_parser.set_defaults(func=query_repl)
 
