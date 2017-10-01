@@ -3,6 +3,7 @@ import json
 import codecs
 import operator
 import argparse
+import logging
 
 import wikipedia
 import stop_words
@@ -115,7 +116,8 @@ def crawl(start, n, callback):
     def process_page(title):
         try:
             page = get_page(title)
-        except (wikipedia.RedirectError, wikipedia.PageError):
+        except:
+            logging.exception("Exception during request to page {}".format(title))
             return
         nonlocal i
         i += 1
